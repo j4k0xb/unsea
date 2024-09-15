@@ -150,6 +150,10 @@ if __name__ == "__main__":
     with open("sea.js", "w") as f:
         f.write(sea.code)
 
+    if sea.code_cache is not None:
+        with open("sea.jsc", "wb") as f:
+            f.write(sea.code_cache)
+
     if sea.assets is not None:
         os.mkdir("sea_assets")
 

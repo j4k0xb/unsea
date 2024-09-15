@@ -10,4 +10,8 @@ Compatible with ELF, PE (.exe), and Mach-O executables.
 2. Run `pip install -r requirements.txt`
 3. Run `python unsea.py <path-to-executable>`
 
-The source code will be extracted to `sea.js` and the assets will be extracted to a folder named `sea_assets`.
+Output files:
+
+- `sea.js`: source code
+- `sea.jsc`: optional cached data (what [bytenode](https://github.com/bytenode/bytenode) creates).
+- `sea_assets/`: optional extracted assets
