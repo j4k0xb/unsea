@@ -54,8 +54,7 @@ class SeaDeserializer:
         self.offset = 0
 
     def read_string_view(self) -> str:
-        length = struct.unpack("<Q", self.blob[self.offset : self.offset + 8])[0]
-        self.offset += 8
+        length = self.read_uint64()
         result = self.blob[self.offset : self.offset + length].decode("utf-8")
         self.offset += length
         return result
