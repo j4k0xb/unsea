@@ -13,5 +13,5 @@ Compatible with ELF, PE (.exe), and Mach-O executables.
 Output files:
 
 - `sea.js`: source code
-- `sea.jsc`: optional cached data (what [bytenode](https://github.com/bytenode/bytenode) creates).
-- `sea_assets/`: optional extracted assets
+- `sea.jsc`: [code cache / bytecode](https://nodejs.org/api/single-executable-applications.html#v8-code-cache-support)
+- `sea_assets/`: extracted assets
