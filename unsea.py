@@ -153,10 +153,10 @@ if __name__ == "__main__":
     if sea.assets is not None:
         os.mkdir("sea_assets")
 
-    for asset_name, asset_content in sea.assets.items():
-        asset_path = os.path.join("sea_assets", asset_name)
-        assert is_safe_path(asset_path, "sea_assets"), (
-            "Unsafe asset path: " + asset_path
-        )
-        with open(asset_path, "w") as f:
-            f.write(asset_content)
+        for asset_name, asset_content in sea.assets.items():
+            asset_path = os.path.join("sea_assets", asset_name)
+            assert is_safe_path(asset_path, "sea_assets"), (
+                "Unsafe asset path: " + asset_path
+            )
+            with open(asset_path, "w") as f:
+                f.write(asset_content)
