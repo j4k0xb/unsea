@@ -135,7 +135,7 @@ def read_from_macho(binary: lief.MachO.Binary) -> bytes:
 
 
 def is_safe_path(path: str, safe_dir: str) -> bool:
-    return os.path.realpath(path).startswith(os.path.realpath(safe_dir))
+    return os.path.realpath(path).startswith(os.path.realpath(safe_dir) + os.sep)
 
 
 if __name__ == "__main__":
