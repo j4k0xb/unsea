@@ -1,6 +1,6 @@
 # unsea
 
-Unpack the javascript source code and assets of Node [Single Executable Applications](https://nodejs.org/api/single-executable-applications.html).
+Extracts the javascript source code and assets of Node [Single Executable Applications](https://nodejs.org/api/single-executable-applications.html).
 
 Compatible with ELF, PE (.exe), and Mach-O executables.
 
