@@ -2,7 +2,7 @@
 
 Extracts the javascript source code and assets of Node [Single Executable Applications](https://nodejs.org/api/single-executable-applications.html).
 
-Compatible with ELF, PE (.exe), and Mach-O executables.
+Compatible with ELF (Linux), PE (Windows), and Mach-O (MacOS) executables.
 
 ## Usage
 
