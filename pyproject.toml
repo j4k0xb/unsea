@@ -1,6 +1,6 @@
 [project]
 name = "unsea"
-version = "0.1.0"
+version = "0.1.1"
 authors = [
     { name = "j4k0xb", email = "<55899582+j4k0xb@users.noreply.github.com>" }
 ]
