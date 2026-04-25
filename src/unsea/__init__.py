@@ -32,7 +32,7 @@ class SeaResource:
 
     def create_config(self):
         config = {
-            "main": "sea.js",
+            "main": "index.js",
             "output": "sea.blob",
         }
         if self.flags & SeaFlags.kDisableExperimentalSeaWarning.value:
