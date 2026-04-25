@@ -1,7 +1,7 @@
 import json
 import os
+import shutil
 import struct
-import sys
 from enum import Enum
 
 import lief
@@ -43,7 +43,7 @@ class SeaResource:
             config["useCodeCache"] = True
         if self.assets:
             config["assets"] = {
-                path: os.path.join("sea_assets", path) for path in self.assets
+                path: os.path.join("assets", path) for path in self.assets
             }
         return config
 
@@ -138,29 +138,46 @@ def is_safe_path(path: str, safe_dir: str) -> bool:
     return os.path.realpath(path).startswith(os.path.realpath(safe_dir) + os.sep)
 
 
-if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python unsea.py <path-to-executable>")
-        sys.exit(1)
+def prepare_output_dir(output_dir: str, force: bool) -> None:
+    if os.path.exists(output_dir):
+        if not os.path.isdir(output_dir):
+            raise FileExistsError(
+                f"Output path exists and is not a directory: {output_dir}"
+            )
+        if force:
+            shutil.rmtree(output_dir)
+        elif os.listdir(output_dir):
+            raise FileExistsError(
+                f"Output directory already exists and is not empty: {output_dir}. "
+                "Use --force to overwrite it."
+            )
+    os.makedirs(output_dir, exist_ok=True)
 
-    sea = parse_sea(sys.argv[1])
-    print("Original code path:", sea.code_path)
-    print(json.dumps(sea.create_config(), indent=4))
 
-    with open("sea.js", "w") as f:
+def write_outputs(sea: SeaResource, output_dir: str, force: bool = False) -> None:
+    prepare_output_dir(output_dir, force)
+    asset_dir = os.path.join(output_dir, "assets")
+    if sea.assets:
+        os.makedirs(asset_dir, exist_ok=True)
+
+    with open(os.path.join(output_dir, "config.json"), "w") as f:
+        json.dump(sea.create_config(), f, indent=4)
+
+    with open(os.path.join(output_dir, "index.js"), "w") as f:
         f.write(sea.code)
 
     if sea.code_cache is not None:
-        with open("sea.jsc", "wb") as f:
+        with open(os.path.join(output_dir, "index.jsc"), "wb") as f:
             f.write(sea.code_cache)
 
     if sea.assets is not None:
-        os.mkdir("sea_assets")
-
         for asset_name, asset_content in sea.assets.items():
-            asset_path = os.path.join("sea_assets", asset_name)
-            assert is_safe_path(asset_path, "sea_assets"), (
+            asset_path = os.path.join(asset_dir, asset_name)
+            assert is_safe_path(asset_path, output_dir), (
                 "Unsafe asset path: " + asset_path
             )
+            os.makedirs(os.path.dirname(asset_path), exist_ok=True)
             with open(asset_path, "w") as f:
                 f.write(asset_content)
+
+    print(f"Successfully extracted to '{output_dir}'")

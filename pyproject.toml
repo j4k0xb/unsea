@@ -1,0 +1,36 @@
+[project]
+name = "unsea"
+version = "0.1.0"
+authors = [
+    { name = "j4k0xb", email = "<55899582+j4k0xb@users.noreply.github.com>" }
+]
+description = "Extracts the javascript source code and assets of Node Single Executable Applications"
+readme = "README.md"
+requires-python = ">=3.9"
+keywords = ["node", "javascript", "single executable application", "unpacking", "reverse engineering"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+    "Topic :: Software Development",
+    "Topic :: Utilities",
+]
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+dependencies = [
+  "lief==0.17.6"
+]
+
+[project.scripts]
+unsea = "unsea.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/j4k0xb/unsea"
+Source = "https://github.com/j4k0xb/unsea"
+Issues = "https://github.com/j4k0xb/unsea/issues"
+
+[build-system]
+requires = ["uv_build >= 0.11.7, <0.12.0"]
+build-backend = "uv_build"
