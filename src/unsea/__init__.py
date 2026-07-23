@@ -2,50 +2,53 @@ import json
 import os
 import shutil
 import struct
-from enum import Enum
+from dataclasses import dataclass
+from enum import Flag, IntEnum
 
 import lief
 
 
-class SeaFlags(Enum):
+class SeaFlags(Flag):
     kDefault = 0
     kDisableExperimentalSeaWarning = 1 << 0
     kUseSnapshot = 1 << 1
     kUseCodeCache = 1 << 2
     kIncludeAssets = 1 << 3
+    kIncludeExecArgv = 1 << 4
 
 
+class SeaExecArgvExtension(IntEnum):
+    kNone = 0
+    kEnv = 1
+    kCli = 2
+
+
+class ModuleFormat(IntEnum):
+    kCommonJS = 0
+    kModule = 1
+
+
+@dataclass(frozen=True)
+class SeaFormat:
+    supports_exec_argv_extension: bool = False
+    supports_main_format: bool = False
+
+
+@dataclass(frozen=True)
+class SeaHeader:
+    flags: SeaFlags
+    exec_argv_extension: SeaExecArgvExtension
+    main_code_format: ModuleFormat
+
+
+@dataclass(frozen=True)
 class SeaResource:
-    def __init__(
-        self,
-        flags: int,
-        code_path: str,
-        code: str,
-        code_cache: bytes | None,
-        assets: dict[str, str] | None,
-    ):
-        self.flags = flags
-        self.code_path = code_path
-        self.code = code
-        self.code_cache = code_cache
-        self.assets = assets
-
-    def create_config(self):
-        config = {
-            "main": "index.js",
-            "output": "sea.blob",
-        }
-        if self.flags & SeaFlags.kDisableExperimentalSeaWarning.value:
-            config["disableExperimentalSEAWarning"] = True
-        if self.flags & SeaFlags.kUseSnapshot.value:
-            config["useSnapshot"] = True
-        if self.flags & SeaFlags.kUseCodeCache.value:
-            config["useCodeCache"] = True
-        if self.assets:
-            config["assets"] = {
-                path: os.path.join("assets", path) for path in self.assets
-            }
-        return config
+    header: SeaHeader
+    code_path: str
+    code: str
+    code_cache: bytes | None
+    assets: dict[str, str]
+    exec_argv: list[str]
 
 
 class SeaDeserializer:
@@ -59,6 +62,11 @@ class SeaDeserializer:
         self.offset += length
         return result
 
+    def read_uint8(self) -> int:
+        result = self.blob[self.offset]
+        self.offset += 1
+        return result
+
     def read_uint32(self) -> int:
         result = struct.unpack("<I", self.blob[self.offset : self.offset + 4])[0]
         self.offset += 4
@@ -70,45 +78,108 @@ class SeaDeserializer:
         return result
 
 
+def detect_sea_format(executable: bytes) -> SeaFormat:
+    return SeaFormat(
+        supports_exec_argv_extension=b'"execArgvExtension" field' in executable,
+        supports_main_format=b'"mainFormat" field' in executable,
+    )
+
+
+def parse_code_cache(deserializer: SeaDeserializer) -> bytes:
+    length = deserializer.read_uint64()
+    code_cache = deserializer.blob[deserializer.offset : deserializer.offset + length]
+    deserializer.offset += length
+    return code_cache
+
+
+def parse_assets(deserializer: SeaDeserializer) -> dict[str, str]:
+    assets = {}
+    assets_size = deserializer.read_uint64()
+    for _ in range(assets_size):
+        asset_name = deserializer.read_string_view()
+        asset_content = deserializer.read_string_view()
+        assets[asset_name] = asset_content
+    return assets
+
+
+def parse_exec_argv(deserializer: SeaDeserializer) -> list[str]:
+    exec_argv = []
+    exec_argv_size = deserializer.read_uint64()
+    for _ in range(exec_argv_size):
+        arg = deserializer.read_string_view()
+        exec_argv.append(arg)
+    return exec_argv
+
+
+def parse_header(deserializer: SeaDeserializer, fmt: SeaFormat) -> SeaHeader:
+    _magic = deserializer.read_uint32()
+    flags = SeaFlags(deserializer.read_uint32())
+
+    exec_argv_extension = SeaExecArgvExtension.kNone
+    if fmt.supports_exec_argv_extension:
+        exec_argv_extension = SeaExecArgvExtension(deserializer.read_uint8())
+
+    main_code_format = ModuleFormat.kCommonJS
+    if fmt.supports_main_format:
+        main_code_format = ModuleFormat(deserializer.read_uint8())
+
+    return SeaHeader(
+        flags=flags,
+        exec_argv_extension=exec_argv_extension,
+        main_code_format=main_code_format,
+    )
+
+
 def parse_sea(filepath: str) -> SeaResource:
     binary = lief.parse(filepath)
+    with open(filepath, "rb") as f:
+        fmt = detect_sea_format(f.read())
+        print(f"SEA format: {fmt}")
 
     if lief.is_elf(filepath):
-        blob = read_from_elf(binary)
+        blob = read_elf_blob(binary)
     elif lief.is_pe(filepath):
-        blob = read_from_pe(binary)
+        blob = read_blob_pe(binary)
     elif lief.is_macho(filepath):
-        blob = read_from_macho(binary)
+        blob = read_blob_macho(binary)
     else:
         raise Exception("Unsupported file format")
 
     deserializer = SeaDeserializer(blob)
-    _magic = deserializer.read_uint32()
-    flags = deserializer.read_uint32()
+
+    header = parse_header(deserializer, fmt)
+    print(f"SEA header: {header}")
     code_path = deserializer.read_string_view()
     code = deserializer.read_string_view()
+
+    print(f"Code: {code_path} ({len(code)} bytes)")
+
     code_cache = None
-    assets = None
+    if SeaFlags.kUseCodeCache in header.flags:
+        code_cache = parse_code_cache(deserializer)
+        print(f"Code cache: {len(code_cache)} bytes")
 
-    if flags & SeaFlags.kUseCodeCache.value:
-        length = deserializer.read_uint64()
-        code_cache = deserializer.blob[
-            deserializer.offset : deserializer.offset + length
-        ]
-        deserializer.offset += length
+    assets = {}
+    if SeaFlags.kIncludeAssets in header.flags:
+        assets = parse_assets(deserializer)
+        print(f"Assets: {list(assets.keys())}")
 
-    if flags & SeaFlags.kIncludeAssets.value:
-        assets = {}
-        assets_size = deserializer.read_uint64()
-        for _ in range(assets_size):
-            asset_name = deserializer.read_string_view()
-            asset_content = deserializer.read_string_view()
-            assets[asset_name] = asset_content
+    exec_argv = []
+    if SeaFlags.kIncludeExecArgv in header.flags:
+        exec_argv = parse_exec_argv(deserializer)
+        print(f"Execution arguments: {exec_argv}")
 
-    return SeaResource(flags, code_path, code, code_cache, assets)
+    return SeaResource(
+        header=header,
+        code_path=code_path,
+        code=code,
+        code_cache=code_cache,
+        assets=assets,
+        exec_argv=exec_argv,
+    )
 
 
-def read_from_elf(binary: lief.ELF.Binary) -> bytes:
+def read_elf_blob(binary: lief.ELF.Binary) -> bytes:
     for note in binary.notes:
         try:
             if note.name == "NODE_SEA_BLOB\x00":
@@ -118,7 +189,7 @@ def read_from_elf(binary: lief.ELF.Binary) -> bytes:
     raise Exception("No NODE_SEA_BLOB found")
 
 
-def read_from_pe(binary: lief.PE.Binary) -> bytes:
+def read_blob_pe(binary: lief.PE.Binary) -> bytes:
     for directory in binary.resources.childs:
         for child in directory.childs:
             if child.name == "NODE_SEA_BLOB":
@@ -127,11 +198,57 @@ def read_from_pe(binary: lief.PE.Binary) -> bytes:
     raise Exception("No NODE_SEA_BLOB found")
 
 
-def read_from_macho(binary: lief.MachO.Binary) -> bytes:
+def read_blob_macho(binary: lief.MachO.Binary) -> bytes:
     postject_segment = binary.get_segment("__POSTJECT")
     if postject_segment is None:
         raise Exception("No __POSTJECT segment found")
     return bytes(postject_segment.content)
+
+
+def create_config(resource: SeaResource) -> dict:
+    config = {}
+    config["main"] = "main.js"
+
+    #  Default: "commonjs", options: "commonjs", "module"
+    # Node.js>=v26.0.0
+    if resource.header.main_code_format == ModuleFormat.kModule:
+        config["mainFormat"] = "module"
+
+    # --build-sea (Node.js>=v25.5.0): build executable directly
+    # --experimental-sea-config: dump preparation blob
+    config["output"] = "sea.blob"
+
+    # Default: false
+    if SeaFlags.kDisableExperimentalSeaWarning in resource.header.flags:
+        config["disableExperimentalSEAWarning"] = True
+
+    # Default: false
+    if SeaFlags.kUseSnapshot in resource.header.flags:
+        config["useSnapshot"] = True
+
+    # Default: false
+    if SeaFlags.kUseCodeCache in resource.header.flags:
+        config["useCodeCache"] = True
+
+    # Optional
+    if resource.exec_argv:
+        config["execArgv"] = resource.exec_argv
+
+    # Default: "env", options: "none", "env", "cli"
+    # Node.js>=v25.0.0
+    if resource.header.exec_argv_extension != SeaExecArgvExtension.kEnv:
+        config["execArgvExtension"] = {
+            SeaExecArgvExtension.kNone: "none",
+            SeaExecArgvExtension.kCli: "cli",
+        }[resource.header.exec_argv_extension]
+
+    # Optional
+    if resource.assets:
+        config["assets"] = {
+            path: os.path.join("assets", path) for path in resource.assets
+        }
+
+    return config
 
 
 def is_safe_path(path: str, safe_dir: str) -> bool:
@@ -161,23 +278,20 @@ def write_outputs(sea: SeaResource, output_dir: str, force: bool = False) -> Non
         os.makedirs(asset_dir, exist_ok=True)
 
     with open(os.path.join(output_dir, "config.json"), "w") as f:
-        json.dump(sea.create_config(), f, indent=4)
+        json.dump(create_config(sea), f, indent=4)
 
-    with open(os.path.join(output_dir, "index.js"), "w") as f:
+    with open(os.path.join(output_dir, "main.js"), "w") as f:
         f.write(sea.code)
 
     if sea.code_cache is not None:
-        with open(os.path.join(output_dir, "index.jsc"), "wb") as f:
+        with open(os.path.join(output_dir, "main.jsc"), "wb") as f:
             f.write(sea.code_cache)
 
-    if sea.assets is not None:
-        for asset_name, asset_content in sea.assets.items():
-            asset_path = os.path.join(asset_dir, asset_name)
-            assert is_safe_path(asset_path, output_dir), (
-                "Unsafe asset path: " + asset_path
-            )
-            os.makedirs(os.path.dirname(asset_path), exist_ok=True)
-            with open(asset_path, "w") as f:
-                f.write(asset_content)
+    for asset_name, asset_content in sea.assets.items():
+        asset_path = os.path.join(asset_dir, asset_name)
+        assert is_safe_path(asset_path, output_dir), "Unsafe asset path: " + asset_path
+        os.makedirs(os.path.dirname(asset_path), exist_ok=True)
+        with open(asset_path, "w") as f:
+            f.write(asset_content)
 
     print(f"Successfully extracted to '{output_dir}'")
