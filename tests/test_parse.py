@@ -62,7 +62,7 @@ def test_assets() -> None:
     sea = parse_sea(str(executable))
 
     expected_asset = (PROJECTS_DIR / "assets" / "foo.txt").read_bytes()
-    assert sea.assets == {"foo.txt": expected_asset}
+    assert bytes(sea.assets["foo.txt"]) == expected_asset
 
 
 def test_codecache() -> None:

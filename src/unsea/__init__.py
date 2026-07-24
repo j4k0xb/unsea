@@ -45,32 +45,36 @@ class SeaHeader:
 
 @dataclass(frozen=True)
 class SeaResource:
-    blob: bytes
     header: SeaHeader
     code_path: str
-    code: bytes | None
-    snapshot: bytes | None
-    code_cache: bytes | None
-    assets: dict[str, bytes]
+    code: memoryview | None
+    snapshot: memoryview | None
+    code_cache: memoryview | None
+    assets: dict[str, memoryview]
     exec_argv: list[str]
 
 
 class SeaDeserializer:
-    def __init__(self, blob: bytes):
-        self.blob = blob
+    def __init__(self, mem: memoryview) -> None:
+        self.mem = mem
         self.offset = 0
 
-    def _read(self, size: int) -> bytes:
-        if self.offset + size > len(self.blob):
-            raise ValueError("Attempt to read beyond the end of the blob")
-        result = self.blob[self.offset : self.offset + size]
-        self.offset += size
-        return result
+    def _read(self, size: int) -> memoryview:
+        if self.offset + size > len(self.mem):
+            raise ValueError(
+                f"Attempt to read beyond end of memory: {self.offset + size} > {len(self.mem)}"
+            )
 
-    def read_bytes(self) -> bytes:
+        start = self.offset
+        self.offset += size
+        return self.mem[start : self.offset]
+
+    def read_bytes(self) -> memoryview:
         length = self.read_uint64()
-        result = self._read(length)
-        return result
+        return self._read(length)
+
+    def read_string(self) -> str:
+        return bytes(self.read_bytes()).decode()
 
     def read_uint8(self) -> int:
         result = self._read(1)[0]
@@ -85,18 +89,18 @@ class SeaDeserializer:
         return result
 
 
-def detect_sea_format(executable: bytes) -> SeaFormat:
+def detect_sea_format(executable: memoryview) -> SeaFormat:
     return SeaFormat(
         supports_exec_argv_extension=b'"execArgvExtension" field' in executable,
         supports_main_format=b'"mainFormat" field' in executable,
     )
 
 
-def parse_assets(deserializer: SeaDeserializer) -> dict[str, bytes]:
+def parse_assets(deserializer: SeaDeserializer) -> dict[str, memoryview]:
     assets = {}
     assets_size = deserializer.read_uint64()
     for _ in range(assets_size):
-        asset_name = deserializer.read_bytes().decode()
+        asset_name = deserializer.read_string()
         asset_content = deserializer.read_bytes()
         assets[asset_name] = asset_content
     return assets
@@ -106,7 +110,7 @@ def parse_exec_argv(deserializer: SeaDeserializer) -> list[str]:
     exec_argv = []
     exec_argv_size = deserializer.read_uint64()
     for _ in range(exec_argv_size):
-        arg = deserializer.read_bytes().decode()
+        arg = deserializer.read_string()
         exec_argv.append(arg)
     return exec_argv
 
@@ -149,7 +153,7 @@ def parse_sea(filepath: str) -> SeaResource:
 
     header = parse_header(deserializer, fmt)
     print(f"SEA header: {header}")
-    code_path = deserializer.read_bytes().decode()
+    code_path = deserializer.read_string()
     print(f"Code path: {code_path}")
 
     code_or_snapshot = deserializer.read_bytes()
@@ -160,7 +164,7 @@ def parse_sea(filepath: str) -> SeaResource:
     else:
         code = code_or_snapshot
         snapshot = None
-        print(f"Code: {code_path} {len(code_or_snapshot)} bytes")
+        print(f"Code: {len(code_or_snapshot)} bytes")
 
     code_cache = None
     if SeaFlags.kUseCodeCache in header.flags:
@@ -178,7 +182,6 @@ def parse_sea(filepath: str) -> SeaResource:
         print(f"Execution arguments: {exec_argv}")
 
     return SeaResource(
-        blob=blob,
         header=header,
         code_path=code_path,
         code=code,
@@ -189,30 +192,31 @@ def parse_sea(filepath: str) -> SeaResource:
     )
 
 
-def read_blob_elf(binary: lief.ELF.Binary) -> bytes:
+# BUG: lief caps the note description to 1MB.
+def read_blob_elf(binary: lief.ELF.Binary) -> memoryview:
     for note in binary.notes:
         try:
             if note.name == "NODE_SEA_BLOB\x00":
-                return bytes(note.description)
+                return note.description
         except UnicodeDecodeError:
             pass
     raise Exception("No NODE_SEA_BLOB found")
 
 
-def read_blob_pe(binary: lief.PE.Binary) -> bytes:
+def read_blob_pe(binary: lief.PE.Binary) -> memoryview:
     for directory in binary.resources.childs:
         for child in directory.childs:
             if child.name == "NODE_SEA_BLOB":
                 resource_data = next(child.childs)
-                return bytes(resource_data.content)
+                return resource_data.content
     raise Exception("No NODE_SEA_BLOB found")
 
 
-def read_blob_macho(binary: lief.MachO.Binary) -> bytes:
+def read_blob_macho(binary: lief.MachO.Binary) -> memoryview:
     postject_segment = binary.get_segment("__POSTJECT")
     if postject_segment is None:
         raise Exception("No __POSTJECT segment found")
-    return bytes(postject_segment.content)
+    return postject_segment.content
 
 
 def create_config(resource: SeaResource) -> dict:
@@ -288,8 +292,6 @@ def write_outputs(sea: SeaResource, output_dir: str, force: bool = False) -> Non
 
     with (output_path / "config.json").open("w") as f:
         json.dump(create_config(sea), f, indent=4)
-
-    (output_path / "sea-prep.blob").write_bytes(sea.blob)
 
     if sea.code is not None:
         (output_path / "main.js").write_bytes(sea.code)
