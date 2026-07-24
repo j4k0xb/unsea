@@ -48,7 +48,7 @@ class SeaResource:
     blob: bytes
     header: SeaHeader
     code_path: str
-    code: bytes
+    code: bytes | None
     snapshot: bytes | None
     code_cache: bytes | None
     assets: dict[str, bytes]
@@ -60,25 +60,28 @@ class SeaDeserializer:
         self.blob = blob
         self.offset = 0
 
+    def _read(self, size: int) -> bytes:
+        if self.offset + size > len(self.blob):
+            raise ValueError("Attempt to read beyond the end of the blob")
+        result = self.blob[self.offset : self.offset + size]
+        self.offset += size
+        return result
+
     def read_bytes(self) -> bytes:
         length = self.read_uint64()
-        result = self.blob[self.offset : self.offset + length]
-        self.offset += length
+        result = self._read(length)
         return result
 
     def read_uint8(self) -> int:
-        result = self.blob[self.offset]
-        self.offset += 1
+        result = self._read(1)[0]
         return result
 
     def read_uint32(self) -> int:
-        result = struct.unpack("<I", self.blob[self.offset : self.offset + 4])[0]
-        self.offset += 4
+        result = struct.unpack("<I", self._read(4))[0]
         return result
 
     def read_uint64(self) -> int:
-        result = struct.unpack("<Q", self.blob[self.offset : self.offset + 8])[0]
-        self.offset += 8
+        result = struct.unpack("<Q", self._read(8))[0]
         return result
 
 
@@ -87,13 +90,6 @@ def detect_sea_format(executable: bytes) -> SeaFormat:
         supports_exec_argv_extension=b'"execArgvExtension" field' in executable,
         supports_main_format=b'"mainFormat" field' in executable,
     )
-
-
-def parse_code_cache(deserializer: SeaDeserializer) -> bytes:
-    length = deserializer.read_uint64()
-    code_cache = deserializer.blob[deserializer.offset : deserializer.offset + length]
-    deserializer.offset += length
-    return code_cache
 
 
 def parse_assets(deserializer: SeaDeserializer) -> dict[str, bytes]:
@@ -141,7 +137,7 @@ def parse_sea(filepath: str) -> SeaResource:
         print(f"SEA format: {fmt}")
 
     if lief.is_elf(filepath):
-        blob = read_elf_blob(binary)
+        blob = read_blob_elf(binary)
     elif lief.is_pe(filepath):
         blob = read_blob_pe(binary)
     elif lief.is_macho(filepath):
@@ -168,7 +164,7 @@ def parse_sea(filepath: str) -> SeaResource:
 
     code_cache = None
     if SeaFlags.kUseCodeCache in header.flags:
-        code_cache = parse_code_cache(deserializer)
+        code_cache = deserializer.read_bytes()
         print(f"Code cache: {len(code_cache)} bytes")
 
     assets = {}
@@ -193,7 +189,7 @@ def parse_sea(filepath: str) -> SeaResource:
     )
 
 
-def read_elf_blob(binary: lief.ELF.Binary) -> bytes:
+def read_blob_elf(binary: lief.ELF.Binary) -> bytes:
     for note in binary.notes:
         try:
             if note.name == "NODE_SEA_BLOB\x00":
