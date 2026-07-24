@@ -20,7 +20,7 @@ classifiers = [
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
 dependencies = [
-  "lief==0.17.6"
+  "lief==1.0.0",
 ]
 
 [project.scripts]
