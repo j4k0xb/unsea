@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 import shutil
@@ -43,11 +45,13 @@ class SeaHeader:
 
 @dataclass(frozen=True)
 class SeaResource:
+    blob: bytes
     header: SeaHeader
     code_path: str
-    code: str
+    code: bytes
+    snapshot: bytes | None
     code_cache: bytes | None
-    assets: dict[str, str]
+    assets: dict[str, bytes]
     exec_argv: list[str]
 
 
@@ -56,9 +60,9 @@ class SeaDeserializer:
         self.blob = blob
         self.offset = 0
 
-    def read_string_view(self) -> str:
+    def read_bytes(self) -> bytes:
         length = self.read_uint64()
-        result = self.blob[self.offset : self.offset + length].decode("utf-8")
+        result = self.blob[self.offset : self.offset + length]
         self.offset += length
         return result
 
@@ -92,12 +96,12 @@ def parse_code_cache(deserializer: SeaDeserializer) -> bytes:
     return code_cache
 
 
-def parse_assets(deserializer: SeaDeserializer) -> dict[str, str]:
+def parse_assets(deserializer: SeaDeserializer) -> dict[str, bytes]:
     assets = {}
     assets_size = deserializer.read_uint64()
     for _ in range(assets_size):
-        asset_name = deserializer.read_string_view()
-        asset_content = deserializer.read_string_view()
+        asset_name = deserializer.read_bytes().decode()
+        asset_content = deserializer.read_bytes()
         assets[asset_name] = asset_content
     return assets
 
@@ -106,7 +110,7 @@ def parse_exec_argv(deserializer: SeaDeserializer) -> list[str]:
     exec_argv = []
     exec_argv_size = deserializer.read_uint64()
     for _ in range(exec_argv_size):
-        arg = deserializer.read_string_view()
+        arg = deserializer.read_bytes().decode()
         exec_argv.append(arg)
     return exec_argv
 
@@ -149,10 +153,18 @@ def parse_sea(filepath: str) -> SeaResource:
 
     header = parse_header(deserializer, fmt)
     print(f"SEA header: {header}")
-    code_path = deserializer.read_string_view()
-    code = deserializer.read_string_view()
+    code_path = deserializer.read_bytes().decode()
+    print(f"Code path: {code_path}")
 
-    print(f"Code: {code_path} ({len(code)} bytes)")
+    code_or_snapshot = deserializer.read_bytes()
+    if SeaFlags.kUseSnapshot in header.flags:
+        code = None
+        snapshot = code_or_snapshot
+        print(f"Snapshot: {code_path} ({len(code_or_snapshot)} bytes)")
+    else:
+        code = code_or_snapshot
+        snapshot = None
+        print(f"Code: {code_path} ({len(code_or_snapshot)} bytes)")
 
     code_cache = None
     if SeaFlags.kUseCodeCache in header.flags:
@@ -170,9 +182,11 @@ def parse_sea(filepath: str) -> SeaResource:
         print(f"Execution arguments: {exec_argv}")
 
     return SeaResource(
+        blob=blob,
         header=header,
         code_path=code_path,
         code=code,
+        snapshot=snapshot,
         code_cache=code_cache,
         assets=assets,
         exec_argv=exec_argv,
@@ -216,7 +230,7 @@ def create_config(resource: SeaResource) -> dict:
 
     # --build-sea (Node.js>=v25.5.0): build executable directly
     # --experimental-sea-config: dump preparation blob
-    config["output"] = "sea.blob"
+    config["output"] = "sea-prep.blob"
 
     # Default: false
     if SeaFlags.kDisableExperimentalSeaWarning in resource.header.flags:
@@ -274,24 +288,30 @@ def prepare_output_dir(output_dir: str, force: bool) -> None:
 def write_outputs(sea: SeaResource, output_dir: str, force: bool = False) -> None:
     prepare_output_dir(output_dir, force)
     asset_dir = os.path.join(output_dir, "assets")
-    if sea.assets:
-        os.makedirs(asset_dir, exist_ok=True)
 
     with open(os.path.join(output_dir, "config.json"), "w") as f:
         json.dump(create_config(sea), f, indent=4)
 
-    with open(os.path.join(output_dir, "main.js"), "w") as f:
-        f.write(sea.code)
+    with open(os.path.join(output_dir, "sea-prep.blob"), "wb") as f:
+        f.write(sea.blob)
+
+    if sea.code is not None:
+        with open(os.path.join(output_dir, "main.js"), "wb") as f:
+            f.write(sea.code)
 
     if sea.code_cache is not None:
         with open(os.path.join(output_dir, "main.jsc"), "wb") as f:
             f.write(sea.code_cache)
 
+    if sea.snapshot is not None:
+        with open(os.path.join(output_dir, "main-snapshot.bin"), "wb") as f:
+            f.write(sea.snapshot)
+
     for asset_name, asset_content in sea.assets.items():
         asset_path = os.path.join(asset_dir, asset_name)
         assert is_safe_path(asset_path, output_dir), "Unsafe asset path: " + asset_path
         os.makedirs(os.path.dirname(asset_path), exist_ok=True)
-        with open(asset_path, "w") as f:
+        with open(asset_path, "wb") as f:
             f.write(asset_content)
 
     print(f"Successfully extracted to '{output_dir}'")

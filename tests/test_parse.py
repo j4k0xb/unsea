@@ -53,7 +53,7 @@ def test_basic() -> None:
     executable = _generate_sea(PROJECTS_DIR / "basic")
     sea = parse_sea(str(executable))
 
-    expected_code = (PROJECTS_DIR / "basic" / "main.js").read_text()
+    expected_code = (PROJECTS_DIR / "basic" / "main.js").read_bytes()
     assert sea.code == expected_code
 
 
@@ -61,7 +61,7 @@ def test_assets() -> None:
     executable = _generate_sea(PROJECTS_DIR / "assets")
     sea = parse_sea(str(executable))
 
-    expected_asset = (PROJECTS_DIR / "assets" / "foo.txt").read_text()
+    expected_asset = (PROJECTS_DIR / "assets" / "foo.txt").read_bytes()
     assert sea.assets == {"foo.txt": expected_asset}
 
 
@@ -72,7 +72,6 @@ def test_codecache() -> None:
     assert sea.code_cache is not None
 
 
-@pytest.mark.skip(reason="not implemented yet")
 def test_snapshot() -> None:
     executable = _generate_sea(PROJECTS_DIR / "snapshot")
     sea = parse_sea(str(executable))

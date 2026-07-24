@@ -20,7 +20,9 @@ Output files:
 
 - `main.js`: source code
 - `main.jsc`: [code cache / bytecode](https://nodejs.org/api/single-executable-applications.html#v8-code-cache-support)
-- `config.json`: configuration that was used to create the executable
+- `main-snapshot.bin`: [snapshot](https://nodejs.org/api/single-executable-applications.html#v8-snapshot-support)
+- `sea-prep.blob`: preparation blob injected into a Node.js executable
+- `config.json`: configuration to create the executable
 - `assets/`: extracted assets
 
 ## Development
