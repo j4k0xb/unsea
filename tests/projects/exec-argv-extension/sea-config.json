@@ -1,0 +1,6 @@
+{
+  "main": "main.js",
+  "output": "sea-prep.blob",
+  "execArgv": ["--no-warnings"],
+  "execArgvExtension": "cli"
+}

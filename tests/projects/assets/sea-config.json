@@ -1,0 +1,7 @@
+{
+  "main": "main.js",
+  "output": "sea-prep.blob",
+  "assets": {
+    "foo.txt": "foo.txt"
+  }
+}
