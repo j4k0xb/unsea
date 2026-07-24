@@ -19,9 +19,7 @@ classifiers = [
 ]
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
-dependencies = [
-  "lief==1.0.0",
-]
+dependencies = []
 
 [project.scripts]
 unsea = "unsea.cli:main"

@@ -12,7 +12,7 @@ PROJECTS_DIR = Path("tests/projects")
 NODE_VERSION = (
     subprocess.check_output(["node", "-p", "process.versions.node"]).decode().strip()
 )
-NODE_MAJOR = int(NODE_VERSION.split(".")[0])
+NODE_VERSION = map(int, NODE_VERSION.split("."))
 
 
 def _generate_sea(cwd: Path) -> Path:
@@ -88,7 +88,7 @@ def test_exec_argv() -> None:
 
 
 @pytest.mark.skipif(
-    NODE_MAJOR < 25, reason="execArgvExtension requires Node.js >= 25.0.0"
+    NODE_VERSION < (22, 20, 0), reason="execArgvExtension requires Node.js >= 22.20.0"
 )
 def test_exec_argv_extension() -> None:
     executable = _generate_sea(PROJECTS_DIR / "exec-argv-extension")
@@ -99,7 +99,9 @@ def test_exec_argv_extension() -> None:
     assert config["execArgvExtension"] == "cli"
 
 
-@pytest.mark.skipif(NODE_MAJOR < 26, reason="mainFormat requires Node.js >= 26.0.0")
+@pytest.mark.skipif(
+    NODE_VERSION < (26, 0, 0), reason="mainFormat requires Node.js >= 26.0.0"
+)
 def test_esm() -> None:
     executable = _generate_sea(PROJECTS_DIR / "esm")
     sea = parse_sea(str(executable))
