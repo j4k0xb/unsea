@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import struct
 from dataclasses import dataclass
 from enum import Flag, IntEnum
+from pathlib import Path
 
 import lief
 
@@ -160,11 +160,11 @@ def parse_sea(filepath: str) -> SeaResource:
     if SeaFlags.kUseSnapshot in header.flags:
         code = None
         snapshot = code_or_snapshot
-        print(f"Snapshot: {code_path} ({len(code_or_snapshot)} bytes)")
+        print(f"Snapshot: {len(code_or_snapshot)} bytes")
     else:
         code = code_or_snapshot
         snapshot = None
-        print(f"Code: {code_path} ({len(code_or_snapshot)} bytes)")
+        print(f"Code: {code_path} {len(code_or_snapshot)} bytes")
 
     code_cache = None
     if SeaFlags.kUseCodeCache in header.flags:
@@ -259,59 +259,57 @@ def create_config(resource: SeaResource) -> dict:
     # Optional
     if resource.assets:
         config["assets"] = {
-            path: os.path.join("assets", path) for path in resource.assets
+            path: str(Path("assets") / path) for path in resource.assets
         }
 
     return config
 
 
-def is_safe_path(path: str, safe_dir: str) -> bool:
-    return os.path.realpath(path).startswith(os.path.realpath(safe_dir) + os.sep)
+def is_safe_path(path: Path, safe_dir: Path) -> bool:
+    return path.resolve().is_relative_to(safe_dir.resolve())
 
 
-def prepare_output_dir(output_dir: str, force: bool) -> None:
-    if os.path.exists(output_dir):
-        if not os.path.isdir(output_dir):
+def prepare_output_dir(output_dir: Path, force: bool) -> None:
+    if output_dir.exists():
+        if not output_dir.is_dir():
             raise FileExistsError(
                 f"Output path exists and is not a directory: {output_dir}"
             )
         if force:
             shutil.rmtree(output_dir)
-        elif os.listdir(output_dir):
+        elif any(output_dir.iterdir()):
             raise FileExistsError(
                 f"Output directory already exists and is not empty: {output_dir}. "
                 "Use --force to overwrite it."
             )
-    os.makedirs(output_dir, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
 
 def write_outputs(sea: SeaResource, output_dir: str, force: bool = False) -> None:
-    prepare_output_dir(output_dir, force)
-    asset_dir = os.path.join(output_dir, "assets")
+    output_path = Path(output_dir)
+    prepare_output_dir(output_path, force)
+    asset_dir = output_path / "assets"
 
-    with open(os.path.join(output_dir, "config.json"), "w") as f:
+    with (output_path / "config.json").open("w") as f:
         json.dump(create_config(sea), f, indent=4)
 
-    with open(os.path.join(output_dir, "sea-prep.blob"), "wb") as f:
-        f.write(sea.blob)
+    (output_path / "sea-prep.blob").write_bytes(sea.blob)
 
     if sea.code is not None:
-        with open(os.path.join(output_dir, "main.js"), "wb") as f:
-            f.write(sea.code)
+        (output_path / "main.js").write_bytes(sea.code)
 
     if sea.code_cache is not None:
-        with open(os.path.join(output_dir, "main.jsc"), "wb") as f:
-            f.write(sea.code_cache)
+        (output_path / "main.jsc").write_bytes(sea.code_cache)
 
     if sea.snapshot is not None:
-        with open(os.path.join(output_dir, "main-snapshot.bin"), "wb") as f:
-            f.write(sea.snapshot)
+        (output_path / "main-snapshot.bin").write_bytes(sea.snapshot)
 
     for asset_name, asset_content in sea.assets.items():
-        asset_path = os.path.join(asset_dir, asset_name)
-        assert is_safe_path(asset_path, output_dir), "Unsafe asset path: " + asset_path
-        os.makedirs(os.path.dirname(asset_path), exist_ok=True)
-        with open(asset_path, "wb") as f:
-            f.write(asset_content)
+        asset_path = asset_dir / asset_name
+        if not is_safe_path(asset_path, output_path):
+            raise ValueError("Unsafe asset path: " + str(asset_path))
 
-    print(f"Successfully extracted to '{output_dir}'")
+        asset_path.parent.mkdir(parents=True, exist_ok=True)
+        asset_path.write_bytes(asset_content)
+
+    print(f"Successfully extracted to '{output_path}'")
