@@ -39,6 +39,12 @@ class ModuleFormat(IntEnum):
 
 
 @dataclass(frozen=True)
+class SeaFormat:
+    supports_exec_argv_extension: bool = False
+    supports_main_format: bool = False
+
+
+@dataclass(frozen=True)
 class SeaHeader:
     flags: SeaFlags
     exec_argv_extension: SeaExecArgvExtension
@@ -76,7 +82,7 @@ class SeaDeserializer:
         return self._read(length)
 
     def read_string(self) -> str:
-        return bytes(self.read_bytes()).decode()
+        return bytes(self.read_bytes()).decode("utf-8")
 
     def read_uint8(self) -> int:
         result = self._read(1)[0]
@@ -110,45 +116,26 @@ def parse_exec_argv(deserializer: SeaDeserializer) -> list[str]:
     return exec_argv
 
 
-def parse_header_v20(d: SeaDeserializer) -> SeaHeader:
+def parse_header(d: SeaDeserializer, fmt: SeaFormat) -> SeaHeader:
     magic = d.read_uint32()
     if magic != MAGIC:
         raise SeaParserError(f"Invalid SEA magic: {magic}")
 
     flags = SeaFlags(d.read_uint32())
 
-    return SeaHeader(
-        flags=flags,
-        exec_argv_extension=SeaExecArgvExtension.kEnv,
-        main_code_format=ModuleFormat.kCommonJS,
+    # Node.js >= v22.20.0
+    exec_argv_extension = (
+        SeaExecArgvExtension(d.read_uint8())
+        if fmt.supports_exec_argv_extension
+        else SeaExecArgvExtension.kEnv
     )
 
-
-def parse_header_v22(d: SeaDeserializer) -> SeaHeader:
-    magic = d.read_uint32()
-    if magic != MAGIC:
-        raise SeaParserError(f"Invalid SEA magic: {magic}")
-
-    flags = SeaFlags(d.read_uint32())
-
-    exec_argv_extension = SeaExecArgvExtension(d.read_uint8())
-
-    return SeaHeader(
-        flags=flags,
-        exec_argv_extension=exec_argv_extension,
-        main_code_format=ModuleFormat.kCommonJS,
+    # Node.js >= v26.0.0
+    main_code_format = (
+        ModuleFormat(d.read_uint8())
+        if fmt.supports_main_format
+        else ModuleFormat.kCommonJS
     )
-
-
-def parse_header_v26(d: SeaDeserializer) -> SeaHeader:
-    magic = d.read_uint32()
-    if magic != MAGIC:
-        raise SeaParserError(f"Invalid SEA magic: {magic}")
-
-    flags = SeaFlags(d.read_uint32())
-
-    exec_argv_extension = SeaExecArgvExtension(d.read_uint8())
-    main_code_format = ModuleFormat(d.read_uint8())
 
     return SeaHeader(
         flags=flags,
@@ -157,64 +144,61 @@ def parse_header_v26(d: SeaDeserializer) -> SeaHeader:
     )
 
 
+def detect_sea_format(executable: bytes) -> SeaFormat:
+    return SeaFormat(
+        supports_exec_argv_extension=b'"execArgvExtension" field' in executable,
+        supports_main_format=b'"mainFormat" field' in executable,
+    )
+
+
 def parse_sea(filepath: str) -> SeaResource:
-    for blob_reader in [read_elf_blob, read_pe_blob, read_macho_blob]:
-        try:
-            blob = blob_reader(filepath)
-            break
-        except Exception:
-            continue
+    executable = Path(filepath).read_bytes()
+    if executable[:4] == b"\x7fELF":
+        blob = read_elf_blob(filepath)
+    elif executable[:2] == b"MZ":
+        blob = read_pe_blob(filepath)
+    elif executable[:4] == b"\xcf\xfa\xed\xfe":
+        blob = read_macho_blob(filepath)
     else:
         raise SeaParserError("Unsupported file format")
 
-    for parse_header in [parse_header_v20, parse_header_v22, parse_header_v26]:
-        try:
-            deserializer = SeaDeserializer(blob)
-            header = parse_header(deserializer)
+    fmt = detect_sea_format(executable)
+    deserializer = SeaDeserializer(blob)
+    header = parse_header(deserializer, fmt)
 
-            code_path = deserializer.read_string()
+    code_path = deserializer.read_string()
 
-            code = (
-                deserializer.read_bytes()
-                if SeaFlags.kUseSnapshot not in header.flags
-                else None
-            )
+    code = (
+        deserializer.read_bytes() if SeaFlags.kUseSnapshot not in header.flags else None
+    )
 
-            snapshot = (
-                deserializer.read_bytes()
-                if SeaFlags.kUseSnapshot in header.flags
-                else None
-            )
+    snapshot = (
+        deserializer.read_bytes() if SeaFlags.kUseSnapshot in header.flags else None
+    )
 
-            code_cache = (
-                deserializer.read_bytes()
-                if SeaFlags.kUseCodeCache in header.flags
-                else None
-            )
+    code_cache = (
+        deserializer.read_bytes() if SeaFlags.kUseCodeCache in header.flags else None
+    )
 
-            assets = (
-                parse_assets(deserializer)
-                if SeaFlags.kIncludeAssets in header.flags
-                else {}
-            )
+    assets = (
+        parse_assets(deserializer) if SeaFlags.kIncludeAssets in header.flags else {}
+    )
 
-            exec_argv = (
-                parse_exec_argv(deserializer)
-                if SeaFlags.kIncludeExecArgv in header.flags
-                else []
-            )
+    exec_argv = (
+        parse_exec_argv(deserializer)
+        if SeaFlags.kIncludeExecArgv in header.flags
+        else []
+    )
 
-            return SeaResource(
-                header=header,
-                code_path=code_path,
-                code=code,
-                snapshot=snapshot,
-                code_cache=code_cache,
-                assets=assets,
-                exec_argv=exec_argv,
-            )
-        except Exception as e:
-            print(f"Failed to parse SEA with {parse_header.__name__}: {e}")
+    return SeaResource(
+        header=header,
+        code_path=code_path,
+        code=code,
+        snapshot=snapshot,
+        code_cache=code_cache,
+        assets=assets,
+        exec_argv=exec_argv,
+    )
 
 
 def create_config(resource: SeaResource) -> dict:
@@ -247,7 +231,6 @@ def create_config(resource: SeaResource) -> dict:
         config["execArgv"] = resource.exec_argv
 
     # Default: "env", options: "none", "env", "cli"
-    # Node.js>=v22.20.0
     if resource.header.exec_argv_extension != SeaExecArgvExtension.kEnv:
         config["execArgvExtension"] = {
             SeaExecArgvExtension.kNone: "none",
