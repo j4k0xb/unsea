@@ -40,14 +40,16 @@ class ModuleFormat(IntEnum):
 
 
 @dataclass(frozen=True)
-class SeaFormat:
-    supports_flags: bool
-    supports_serializer: bool
-    supports_code_path: bool
-    supports_code_cache: bool
-    supports_assets: bool
-    supports_exec_argv_extension: bool
-    supports_main_format: bool
+class SeaSchema:
+    has_flags: bool
+    has_serializer: bool
+    has_code_path: bool
+    has_code_cache: bool
+    has_snapshot: bool
+    has_assets: bool
+    has_exec_argv: bool
+    has_exec_argv_extension: bool
+    has_main_format: bool
 
 
 @dataclass(frozen=True)
@@ -122,22 +124,22 @@ def parse_exec_argv(deserializer: SeaDeserializer) -> list[str]:
     return exec_argv
 
 
-def parse_header(d: SeaDeserializer, fmt: SeaFormat) -> SeaHeader:
+def parse_header(d: SeaDeserializer, schema: SeaSchema) -> SeaHeader:
     magic = d.read_uint32()
     if magic != MAGIC:
         raise SeaParserError(f"Invalid SEA magic: {magic}")
 
-    flags = SeaFlags(d.read_uint32()) if fmt.supports_flags else SeaFlags.kDefault
+    flags = SeaFlags(d.read_uint32()) if schema.has_flags else SeaFlags.kDefault
 
     exec_argv_extension = (
         SeaExecArgvExtension(d.read_uint8())
-        if fmt.supports_exec_argv_extension
+        if schema.has_exec_argv_extension
         else SeaExecArgvExtension.kEnv
     )
 
     main_code_format = (
         ModuleFormat(d.read_uint8())
-        if fmt.supports_main_format
+        if schema.has_main_format
         else ModuleFormat.kCommonJS
     )
 
@@ -148,7 +150,7 @@ def parse_header(d: SeaDeserializer, fmt: SeaFormat) -> SeaHeader:
     )
 
 
-def detect_sea_format(executable: bytes) -> SeaFormat:
+def detect_node_version(executable: bytes) -> tuple[int, int, int]:
     m = re.search(
         rb"https:\/\/nodejs\.org/download/release/v(\d+)\.(\d+)\.(\d+)/", executable
     )
@@ -156,15 +158,20 @@ def detect_sea_format(executable: bytes) -> SeaFormat:
         raise ValueError("Node.js version not found")
 
     version = tuple(map(int, m.groups()))
+    return version
 
-    return SeaFormat(
-        supports_flags=version >= (20, 2, 0),
-        supports_serializer=version >= (20, 3, 0),
-        supports_code_path=version >= (20, 6, 0),
-        supports_code_cache=version >= (20, 6, 0),
-        supports_assets=version >= (20, 12, 0),
-        supports_exec_argv_extension=version >= (22, 20, 0),
-        supports_main_format=version >= (26, 0, 0),
+
+def get_sea_schema(version: tuple[int, int, int]) -> SeaSchema:
+    return SeaSchema(
+        has_flags=version >= (20, 2, 0),
+        has_serializer=version >= (20, 3, 0),
+        has_code_path=version >= (20, 6, 0),
+        has_code_cache=version >= (20, 6, 0),
+        has_snapshot=version >= (20, 6, 0),
+        has_assets=version >= (20, 12, 0),
+        has_exec_argv=version >= (22, 20, 0),
+        has_exec_argv_extension=version >= (22, 20, 0),
+        has_main_format=version >= (26, 0, 0),
     )
 
 
@@ -179,21 +186,19 @@ def parse_sea(filepath: str) -> SeaResource:
     else:
         raise SeaParserError("Unsupported file format")
 
-    fmt = detect_sea_format(executable)
+    version = detect_node_version(executable)
+    schema = get_sea_schema(version)
     deserializer = SeaDeserializer(blob)
-    header = parse_header(deserializer, fmt)
+    header = parse_header(deserializer, schema)
 
-    code_path = deserializer.read_string() if fmt.supports_code_path else "main.js"
+    code_path = deserializer.read_string() if schema.has_code_path else "main.js"
 
-    code = (
-        (
-            deserializer.read_bytes()
-            if SeaFlags.kUseSnapshot not in header.flags
-            else None
-        )
-        if fmt.supports_serializer
-        else blob[deserializer.offset :]
-    )
+    if not schema.has_serializer:
+        code = blob[deserializer.offset :]
+    elif SeaFlags.kUseSnapshot in header.flags:
+        code = None
+    else:
+        code = deserializer.read_bytes()
 
     snapshot = (
         deserializer.read_bytes() if SeaFlags.kUseSnapshot in header.flags else None

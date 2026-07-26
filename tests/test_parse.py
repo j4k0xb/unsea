@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from unsea import create_config, parse_sea
+from unsea import create_config, get_sea_schema, parse_sea
 
 SENTINEL_FUSE = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2"
 
@@ -15,6 +15,8 @@ NODE_VERSION = (
     subprocess.check_output(["node", "-p", "process.versions.node"]).decode().strip()
 )
 NODE_VERSION = tuple(map(int, NODE_VERSION.split(".")))
+
+schema = get_sea_schema(NODE_VERSION)
 
 
 def _generate_sea(cwd: Path) -> Path:
@@ -67,9 +69,7 @@ def test_basic() -> None:
     assert config["main"] == "main.js"
 
 
-@pytest.mark.skipif(
-    NODE_VERSION < (20, 12, 0), reason="assets requires Node.js >= 20.12.0"
-)
+@pytest.mark.skipif(not schema.has_assets, reason="assets requires Node.js >= 20.12.0")
 def test_assets() -> None:
     executable = _generate_sea(PROJECTS_DIR / "assets")
     sea = parse_sea(str(executable))
@@ -79,7 +79,7 @@ def test_assets() -> None:
 
 
 @pytest.mark.skipif(
-    NODE_VERSION < (20, 6, 0), reason="codeCache requires Node.js >= 20.6.0"
+    not schema.has_code_cache, reason="codeCache requires Node.js >= 20.6.0"
 )
 def test_codecache() -> None:
     executable = _generate_sea(PROJECTS_DIR / "codecache")
@@ -89,7 +89,7 @@ def test_codecache() -> None:
 
 
 @pytest.mark.skipif(
-    NODE_VERSION < (20, 6, 0), reason="snapshot requires Node.js >= 20.6.0"
+    not schema.has_snapshot, reason="snapshot requires Node.js >= 20.6.0"
 )
 def test_snapshot() -> None:
     executable = _generate_sea(PROJECTS_DIR / "snapshot")
@@ -100,7 +100,7 @@ def test_snapshot() -> None:
 
 
 @pytest.mark.skipif(
-    NODE_VERSION < (22, 20, 0), reason="execArgvExtension requires Node.js >= 22.20.0"
+    not schema.has_exec_argv, reason="execArgv requires Node.js >= 22.20.0"
 )
 def test_exec_argv() -> None:
     executable = _generate_sea(PROJECTS_DIR / "exec-argv")
@@ -110,7 +110,8 @@ def test_exec_argv() -> None:
 
 
 @pytest.mark.skipif(
-    NODE_VERSION < (22, 20, 0), reason="execArgvExtension requires Node.js >= 22.20.0"
+    not schema.has_exec_argv_extension,
+    reason="execArgvExtension requires Node.js >= 22.20.0",
 )
 def test_exec_argv_extension() -> None:
     executable = _generate_sea(PROJECTS_DIR / "exec-argv-extension")
@@ -122,7 +123,7 @@ def test_exec_argv_extension() -> None:
 
 
 @pytest.mark.skipif(
-    NODE_VERSION < (26, 0, 0), reason="mainFormat requires Node.js >= 26.0.0"
+    not schema.has_main_format, reason="mainFormat requires Node.js >= 26.0.0"
 )
 def test_esm() -> None:
     executable = _generate_sea(PROJECTS_DIR / "esm")
