@@ -12,7 +12,7 @@ PROJECTS_DIR = Path("tests/projects")
 NODE_VERSION = (
     subprocess.check_output(["node", "-p", "process.versions.node"]).decode().strip()
 )
-NODE_VERSION = map(int, NODE_VERSION.split("."))
+NODE_VERSION = tuple(map(int, NODE_VERSION.split(".")))
 
 
 def _generate_sea(cwd: Path) -> Path:
