@@ -41,6 +41,7 @@ class ModuleFormat(IntEnum):
 
 @dataclass(frozen=True)
 class SeaFormat:
+    supports_flags: bool
     supports_code_path: bool
     supports_code_cache: bool
     supports_assets: bool
@@ -125,7 +126,7 @@ def parse_header(d: SeaDeserializer, fmt: SeaFormat) -> SeaHeader:
     if magic != MAGIC:
         raise SeaParserError(f"Invalid SEA magic: {magic}")
 
-    flags = SeaFlags(d.read_uint32())
+    flags = SeaFlags(d.read_uint32()) if fmt.supports_flags else SeaFlags.kDefault
 
     exec_argv_extension = (
         SeaExecArgvExtension(d.read_uint8())
@@ -156,6 +157,7 @@ def detect_sea_format(executable: bytes) -> SeaFormat:
     version = tuple(map(int, m.groups()))
 
     return SeaFormat(
+        supports_flags=version >= (20, 2, 0),
         supports_code_path=version >= (20, 6, 0),
         supports_code_cache=version >= (20, 6, 0),
         supports_assets=version >= (20, 12, 0),
