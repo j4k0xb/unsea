@@ -55,9 +55,11 @@ def _generate_sea(cwd: Path) -> Path:
 def test_basic() -> None:
     executable = _generate_sea(PROJECTS_DIR / "basic")
     sea = parse_sea(str(executable))
+    config = create_config(sea)
 
     expected_code = (PROJECTS_DIR / "basic" / "main.js").read_bytes()
     assert sea.code == expected_code
+    assert config["main"] == "main.js"
 
 
 @pytest.mark.skipif(
@@ -71,6 +73,9 @@ def test_assets() -> None:
     assert bytes(sea.assets["foo.txt"]) == expected_asset
 
 
+@pytest.mark.skipif(
+    NODE_VERSION < (20, 6, 0), reason="codeCache requires Node.js >= 20.6.0"
+)
 def test_codecache() -> None:
     executable = _generate_sea(PROJECTS_DIR / "codecache")
     sea = parse_sea(str(executable))

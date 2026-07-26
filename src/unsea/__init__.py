@@ -40,8 +40,9 @@ class ModuleFormat(IntEnum):
 
 @dataclass(frozen=True)
 class SeaFormat:
-    supports_exec_argv_extension: bool = False
-    supports_main_format: bool = False
+    supports_code_cache: bool
+    supports_exec_argv_extension: bool
+    supports_main_format: bool
 
 
 @dataclass(frozen=True)
@@ -146,6 +147,7 @@ def parse_header(d: SeaDeserializer, fmt: SeaFormat) -> SeaHeader:
 
 def detect_sea_format(executable: bytes) -> SeaFormat:
     return SeaFormat(
+        supports_code_cache=b'"codeCache" field' in executable,
         supports_exec_argv_extension=b'"execArgvExtension" field' in executable,
         supports_main_format=b'"mainFormat" field' in executable,
     )
@@ -166,7 +168,7 @@ def parse_sea(filepath: str) -> SeaResource:
     deserializer = SeaDeserializer(blob)
     header = parse_header(deserializer, fmt)
 
-    code_path = deserializer.read_string()
+    code_path = deserializer.read_string() if fmt.supports_code_cache else "main.js"
 
     code = (
         deserializer.read_bytes() if SeaFlags.kUseSnapshot not in header.flags else None
@@ -176,6 +178,7 @@ def parse_sea(filepath: str) -> SeaResource:
         deserializer.read_bytes() if SeaFlags.kUseSnapshot in header.flags else None
     )
 
+    # Node.js >= v20.6.0
     code_cache = (
         deserializer.read_bytes() if SeaFlags.kUseCodeCache in header.flags else None
     )
