@@ -83,6 +83,9 @@ def test_snapshot() -> None:
     assert config["useSnapshot"] is True
 
 
+@pytest.mark.skipif(
+    NODE_VERSION < (22, 20, 0), reason="execArgvExtension requires Node.js >= 22.20.0"
+)
 def test_exec_argv() -> None:
     executable = _generate_sea(PROJECTS_DIR / "exec-argv")
     sea = parse_sea(str(executable))

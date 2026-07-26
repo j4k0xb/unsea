@@ -184,6 +184,7 @@ def parse_sea(filepath: str) -> SeaResource:
         parse_assets(deserializer) if SeaFlags.kIncludeAssets in header.flags else {}
     )
 
+    # Node.js >= v22.20.0
     exec_argv = (
         parse_exec_argv(deserializer)
         if SeaFlags.kIncludeExecArgv in header.flags
