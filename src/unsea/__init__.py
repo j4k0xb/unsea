@@ -180,6 +180,7 @@ def parse_sea(filepath: str) -> SeaResource:
         deserializer.read_bytes() if SeaFlags.kUseCodeCache in header.flags else None
     )
 
+    # Node.js >= v20.12.0
     assets = (
         parse_assets(deserializer) if SeaFlags.kIncludeAssets in header.flags else {}
     )
@@ -207,7 +208,7 @@ def create_config(resource: SeaResource) -> dict:
     config["main"] = "main.js"
 
     # Default: "commonjs", options: "commonjs", "module"
-    # Node.js>=v26.0.0
+    # Node.js >= v26.0.0
     if resource.header.main_code_format == ModuleFormat.kModule:
         config["mainFormat"] = "module"
 
@@ -228,10 +229,12 @@ def create_config(resource: SeaResource) -> dict:
         config["useCodeCache"] = True
 
     # Optional
+    # Node.js >= v22.20.0
     if resource.exec_argv:
         config["execArgv"] = resource.exec_argv
 
     # Default: "env", options: "none", "env", "cli"
+    # Node.js >= v22.20.0
     if resource.header.exec_argv_extension != SeaExecArgvExtension.kEnv:
         config["execArgvExtension"] = {
             SeaExecArgvExtension.kNone: "none",
@@ -239,6 +242,7 @@ def create_config(resource: SeaResource) -> dict:
         }[resource.header.exec_argv_extension]
 
     # Optional
+    # Node.js >= v20.12.0
     if resource.assets:
         config["assets"] = {
             path: str(Path("assets") / path) for path in resource.assets

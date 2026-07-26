@@ -60,6 +60,9 @@ def test_basic() -> None:
     assert sea.code == expected_code
 
 
+@pytest.mark.skipif(
+    NODE_VERSION < (20, 12, 0), reason="assets requires Node.js >= 20.12.0"
+)
 def test_assets() -> None:
     executable = _generate_sea(PROJECTS_DIR / "assets")
     sea = parse_sea(str(executable))
