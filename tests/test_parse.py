@@ -1,4 +1,5 @@
 import platform
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -25,16 +26,20 @@ def _generate_sea(cwd: Path) -> Path:
     blob = cwd / "sea-prep.blob"
     assert blob.exists(), "SEA blob was not generated"
 
+    exe_name = "hello.exe" if platform.system() == "Windows" else "hello"
+    output_binary = cwd / exe_name
+
     subprocess.run(
-        ["node", "-e", "require('fs').copyFileSync(process.execPath, 'hello.exe')"],
+        ["node", "-e", f"require('fs').copyFileSync(process.execPath, '{exe_name}')"],
         cwd=cwd,
         check=True,
     )
-    output_binary = cwd / "hello.exe"
     assert output_binary.exists(), "Output binary was not generated"
 
+    npx_cmd = shutil.which("npx.cmd") or shutil.which("npx") or "npx"
+
     postject_args = [
-        "npx",
+        npx_cmd,
         "--yes",
         "postject@1.0.0-alpha.6",
         output_binary.name,
