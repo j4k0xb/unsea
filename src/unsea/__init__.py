@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import struct
 from dataclasses import dataclass
@@ -40,7 +41,9 @@ class ModuleFormat(IntEnum):
 
 @dataclass(frozen=True)
 class SeaFormat:
+    supports_code_path: bool
     supports_code_cache: bool
+    supports_assets: bool
     supports_exec_argv_extension: bool
     supports_main_format: bool
 
@@ -124,14 +127,12 @@ def parse_header(d: SeaDeserializer, fmt: SeaFormat) -> SeaHeader:
 
     flags = SeaFlags(d.read_uint32())
 
-    # Node.js >= v22.20.0
     exec_argv_extension = (
         SeaExecArgvExtension(d.read_uint8())
         if fmt.supports_exec_argv_extension
         else SeaExecArgvExtension.kEnv
     )
 
-    # Node.js >= v26.0.0
     main_code_format = (
         ModuleFormat(d.read_uint8())
         if fmt.supports_main_format
@@ -146,10 +147,20 @@ def parse_header(d: SeaDeserializer, fmt: SeaFormat) -> SeaHeader:
 
 
 def detect_sea_format(executable: bytes) -> SeaFormat:
+    m = re.search(
+        rb"https:\/\/nodejs\.org/download/release/v(\d+)\.(\d+)\.(\d+)/", executable
+    )
+    if not m:
+        raise ValueError("Node.js version not found")
+
+    version = tuple(map(int, m.groups()))
+
     return SeaFormat(
-        supports_code_cache=b'"codeCache" field' in executable,
-        supports_exec_argv_extension=b'"execArgvExtension" field' in executable,
-        supports_main_format=b'"mainFormat" field' in executable,
+        supports_code_path=version >= (20, 6, 0),
+        supports_code_cache=version >= (20, 6, 0),
+        supports_assets=version >= (20, 12, 0),
+        supports_exec_argv_extension=version >= (22, 20, 0),
+        supports_main_format=version >= (26, 0, 0),
     )
 
 
@@ -168,7 +179,7 @@ def parse_sea(filepath: str) -> SeaResource:
     deserializer = SeaDeserializer(blob)
     header = parse_header(deserializer, fmt)
 
-    code_path = deserializer.read_string() if fmt.supports_code_cache else "main.js"
+    code_path = deserializer.read_string() if fmt.supports_code_path else "main.js"
 
     code = (
         deserializer.read_bytes() if SeaFlags.kUseSnapshot not in header.flags else None
@@ -178,17 +189,14 @@ def parse_sea(filepath: str) -> SeaResource:
         deserializer.read_bytes() if SeaFlags.kUseSnapshot in header.flags else None
     )
 
-    # Node.js >= v20.6.0
     code_cache = (
         deserializer.read_bytes() if SeaFlags.kUseCodeCache in header.flags else None
     )
 
-    # Node.js >= v20.12.0
     assets = (
         parse_assets(deserializer) if SeaFlags.kIncludeAssets in header.flags else {}
     )
 
-    # Node.js >= v22.20.0
     exec_argv = (
         parse_exec_argv(deserializer)
         if SeaFlags.kIncludeExecArgv in header.flags
@@ -232,12 +240,10 @@ def create_config(resource: SeaResource) -> dict:
         config["useCodeCache"] = True
 
     # Optional
-    # Node.js >= v22.20.0
     if resource.exec_argv:
         config["execArgv"] = resource.exec_argv
 
     # Default: "env", options: "none", "env", "cli"
-    # Node.js >= v22.20.0
     if resource.header.exec_argv_extension != SeaExecArgvExtension.kEnv:
         config["execArgvExtension"] = {
             SeaExecArgvExtension.kNone: "none",
@@ -245,7 +251,6 @@ def create_config(resource: SeaResource) -> dict:
         }[resource.header.exec_argv_extension]
 
     # Optional
-    # Node.js >= v20.12.0
     if resource.assets:
         config["assets"] = {
             path: str(Path("assets") / path) for path in resource.assets
