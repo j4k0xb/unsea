@@ -42,6 +42,7 @@ class ModuleFormat(IntEnum):
 @dataclass(frozen=True)
 class SeaFormat:
     supports_flags: bool
+    supports_serializer: bool
     supports_code_path: bool
     supports_code_cache: bool
     supports_assets: bool
@@ -158,6 +159,7 @@ def detect_sea_format(executable: bytes) -> SeaFormat:
 
     return SeaFormat(
         supports_flags=version >= (20, 2, 0),
+        supports_serializer=version >= (20, 3, 0),
         supports_code_path=version >= (20, 6, 0),
         supports_code_cache=version >= (20, 6, 0),
         supports_assets=version >= (20, 12, 0),
@@ -184,7 +186,13 @@ def parse_sea(filepath: str) -> SeaResource:
     code_path = deserializer.read_string() if fmt.supports_code_path else "main.js"
 
     code = (
-        deserializer.read_bytes() if SeaFlags.kUseSnapshot not in header.flags else None
+        (
+            deserializer.read_bytes()
+            if SeaFlags.kUseSnapshot not in header.flags
+            else None
+        )
+        if fmt.supports_serializer
+        else blob[deserializer.offset :]
     )
 
     snapshot = (
