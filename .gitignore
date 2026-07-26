@@ -177,3 +177,4 @@ pyrightconfig.json
 
 tests/**/sea-prep.blob
 tests/**/*.exe
+tests/**/hello

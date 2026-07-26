@@ -56,7 +56,7 @@ def read_macho_blob(path: str | Path) -> memoryview:
             # filesize  8
             segname = bytes(data[offset + 8 : offset + 24]).rstrip(b"\0")
 
-            if segname == b"__POSTJECT":
+            if segname == b"NODE_SEA":
                 fileoff, filesize = struct.unpack_from(
                     "<QQ",
                     data,
@@ -66,10 +66,10 @@ def read_macho_blob(path: str | Path) -> memoryview:
                 end = fileoff + filesize
 
                 if end > len(data):
-                    raise MachOError("POSTJECT segment outside file")
+                    raise MachOError("NODE_SEA segment outside file")
 
                 return data[fileoff:end]
 
         offset += cmdsize
 
-    raise MachOError("No __POSTJECT segment found")
+    raise MachOError("No NODE_SEA segment found")
