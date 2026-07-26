@@ -61,6 +61,7 @@ class SeaHeader:
 
 @dataclass(frozen=True)
 class SeaResource:
+    blob: memoryview
     header: SeaHeader
     code_path: str
     code: memoryview | None
@@ -219,6 +220,7 @@ def parse_sea(filepath: str) -> SeaResource:
     )
 
     return SeaResource(
+        blob=blob,
         header=header,
         code_path=code_path,
         code=code,
@@ -298,6 +300,8 @@ def write_outputs(sea: SeaResource, output_dir: str, force: bool = False) -> Non
     output_path = Path(output_dir)
     prepare_output_dir(output_path, force)
     asset_dir = output_path / "assets"
+
+    (output_path / "sea-prep.blob").write_bytes(sea.blob)
 
     with (output_path / "config.json").open("w") as f:
         json.dump(create_config(sea), f, indent=4)
