@@ -1,3 +1,4 @@
+import platform
 import subprocess
 from pathlib import Path
 
@@ -32,20 +33,22 @@ def _generate_sea(cwd: Path) -> Path:
     output_binary = cwd / "hello.exe"
     assert output_binary.exists(), "Output binary was not generated"
 
-    subprocess.run(
-        [
-            "npx",
-            "--yes",
-            "postject@1.0.0-alpha.6",
-            output_binary.name,
-            "NODE_SEA_BLOB",
-            blob.name,
-            "--sentinel-fuse",
-            SENTINEL_FUSE,
-        ],
-        cwd=cwd,
-        check=True,
-    )
+    postject_args = [
+        "npx",
+        "--yes",
+        "postject@1.0.0-alpha.6",
+        output_binary.name,
+        "NODE_SEA_BLOB",
+        blob.name,
+        "--sentinel-fuse",
+        SENTINEL_FUSE,
+    ]
+
+    if platform.system() == "Darwin":
+        postject_args += ["--macho-segment-name", "NODE_SEA"]
+
+    subprocess.run(postject_args, cwd=cwd, check=True)
+
     return output_binary
 
 
