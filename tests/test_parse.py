@@ -83,6 +83,9 @@ def test_codecache() -> None:
     assert sea.code_cache is not None
 
 
+@pytest.mark.skipif(
+    NODE_VERSION < (20, 6, 0), reason="snapshot requires Node.js >= 20.6.0"
+)
 def test_snapshot() -> None:
     executable = _generate_sea(PROJECTS_DIR / "snapshot")
     sea = parse_sea(str(executable))
